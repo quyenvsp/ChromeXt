@@ -11,87 +11,91 @@ import org.matrix.chromext.utils.findMethod
 import org.matrix.chromext.utils.findMethodOrNull
 import org.matrix.chromext.utils.invokeMethod
 import org.matrix.chromext.utils.parseOrigin
+import java.lang.reflect.Modifier
 
 object UserScriptProxy {
   // It is possible to do a HTTP POST with LoadUrlParams Class
   // grep org/chromium/content_public/common/ResourceRequestBody to get setPostData in
   // org/chromium/content_public/browser/LoadUrlParams
 
+  var defaultUserAgent : String? = null
+
   val gURL = Chrome.load("org.chromium.url.GURL")
   val loadUrlParams =
-      if (Chrome.isSamsung) {
-        Chrome.load("com.sec.android.app.sbrowser.tab.LoadUrlParams")
-      } else {
-        Chrome.load("org.chromium.content_public.browser.LoadUrlParams")
-      }
+    if (Chrome.isSamsung) {
+      Chrome.load("com.sec.android.app.sbrowser.tab.LoadUrlParams")
+    } else {
+      Chrome.load("org.chromium.content_public.browser.LoadUrlParams")
+    }
+
   // val tabModelJniBridge = Chrome.load("org.chromium.chrome.browser.tabmodel.TabModelJniBridge")
   val tabWebContentsDelegateAndroidImpl =
-      if (Chrome.isSamsung) {
-        Chrome.load("com.sec.android.app.sbrowser.tab.Tab")
-      } else {
-        Chrome.load("org.chromium.chrome.browser.tab.TabWebContentsDelegateAndroidImpl")
-      }
+    if (Chrome.isSamsung) {
+      Chrome.load("com.sec.android.app.sbrowser.tab.Tab")
+    } else {
+      Chrome.load("org.chromium.chrome.browser.tab.TabWebContentsDelegateAndroidImpl")
+    }
   val navigationControllerImpl =
-      Chrome.load("org.chromium.content.browser.framehost.NavigationControllerImpl")
+    Chrome.load("org.chromium.content.browser.framehost.NavigationControllerImpl")
   val chromeTabbedActivity =
-      if (Chrome.isSamsung) {
-        Chrome.load("com.sec.terrace.TerraceActivity")
-      } else {
-        Chrome.load("org.chromium.chrome.browser.ChromeTabbedActivity")
-      }
+    if (Chrome.isSamsung) {
+      Chrome.load("com.sec.terrace.TerraceActivity")
+    } else {
+      Chrome.load("org.chromium.chrome.browser.ChromeTabbedActivity")
+    }
   val tabImpl =
-      if (Chrome.isSamsung) {
-        Chrome.load("com.sec.terrace.Terrace")
-      } else {
-        Chrome.load("org.chromium.chrome.browser.tab.TabImpl")
-      }
+    if (Chrome.isSamsung) {
+      Chrome.load("com.sec.terrace.Terrace")
+    } else {
+      Chrome.load("org.chromium.chrome.browser.tab.TabImpl")
+    }
   private val getId = findMethodOrNull(tabImpl) { name == "getId" }
   private val mId =
-      (if (Chrome.isSamsung) tabWebContentsDelegateAndroidImpl else tabImpl)
-          .declaredFields
-          .run {
-            val target = find { it.name == "mId" }
-            if (target == null) {
-              val profile = Chrome.load("org.chromium.chrome.browser.profiles.Profile")
-              val windowAndroid = Chrome.load("org.chromium.ui.base.WindowAndroid")
-              var startIndex = indexOfFirst { it.type == gURL }
-              val endIndex = indexOfFirst {
-                it.type == profile ||
+    (if (Chrome.isSamsung) tabWebContentsDelegateAndroidImpl else tabImpl)
+      .declaredFields
+      .run {
+        val target = find { it.name == "mId" }
+        if (target == null) {
+          val profile = Chrome.load("org.chromium.chrome.browser.profiles.Profile")
+          val windowAndroid = Chrome.load("org.chromium.ui.base.WindowAndroid")
+          var startIndex = indexOfFirst { it.type == gURL }
+          val endIndex = indexOfFirst {
+            it.type == profile ||
                     it.type == ContextThemeWrapper::class.java ||
                     it.type == windowAndroid
-              }
-              if (startIndex == -1 || startIndex > endIndex) startIndex = 0
-              slice(startIndex..endIndex - 1).findLast { it.type == Int::class.java }!!
-            } else target
           }
-          .also { it.isAccessible = true }
+          if (startIndex == -1 || startIndex > endIndex) startIndex = 0
+          slice(startIndex..endIndex - 1).findLast { it.type == Int::class.java }!!
+        } else target
+      }
+      .also { it.isAccessible = true }
   val mTab = findField(tabWebContentsDelegateAndroidImpl) { type == tabImpl }
   val mIsLoading =
-      tabImpl.declaredFields
-          .run {
-            // mIsLoading is used in method stopLoading, before calling
-            // Lorg/chromium/content_public/browser/WebContents;->stop()V
-            val target = find { it.name == "mIsLoading" }
-            if (target == null) {
-              val webContents = Chrome.load("org.chromium.content_public.browser.WebContents")
-              var startIndex = indexOfFirst { it.type == webContents }
-              var endIndex = indexOfFirst { it.type == OnAttachStateChangeListener::class.java }
-              var alterStartIndex = indexOfFirst { it.type == loadUrlParams }
-              if (endIndex < startIndex && endIndex < alterStartIndex) endIndex = size - 1
-              if (startIndex < endIndex && alterStartIndex < endIndex) {
-                startIndex = maxOf(startIndex, alterStartIndex)
-              } else {
-                startIndex = minOf(startIndex, alterStartIndex)
-              }
-              slice(startIndex..endIndex - 1).find { it.type == Boolean::class.java }!!
-            } else target
+    tabImpl.declaredFields
+      .run {
+        // mIsLoading is used in method stopLoading, before calling
+        // Lorg/chromium/content_public/browser/WebContents;->stop()V
+        val target = find { it.name == "mIsLoading" }
+        if (target == null) {
+          val webContents = Chrome.load("org.chromium.content_public.browser.WebContents")
+          var startIndex = indexOfFirst { it.type == webContents }
+          var endIndex = indexOfFirst { it.type == OnAttachStateChangeListener::class.java }
+          var alterStartIndex = indexOfFirst { it.type == loadUrlParams }
+          if (endIndex < startIndex && endIndex < alterStartIndex) endIndex = size - 1
+          if (startIndex < endIndex && alterStartIndex < endIndex) {
+            startIndex = maxOf(startIndex, alterStartIndex)
+          } else {
+            startIndex = minOf(startIndex, alterStartIndex)
           }
-          .also { it.isAccessible = true }
-  val loadUrl =
-      findMethod(if (Chrome.isSamsung) tabWebContentsDelegateAndroidImpl else tabImpl) {
-        parameterTypes contentDeepEquals arrayOf(loadUrlParams) &&
-            (Chrome.isSamsung || returnType != Void.TYPE)
+          slice(startIndex..endIndex - 1).find { it.type == Boolean::class.java }!!
+        } else target
       }
+      .also { it.isAccessible = true }
+  val loadUrl =
+    findMethod(if (Chrome.isSamsung) tabWebContentsDelegateAndroidImpl else tabImpl) {
+      parameterTypes contentDeepEquals arrayOf(loadUrlParams) &&
+              (Chrome.isSamsung || returnType != Void.TYPE)
+    }
 
   val kMaxURLChars = 2097152
 
@@ -107,7 +111,7 @@ object UserScriptProxy {
 
   fun newLoadUrlParams(url: String): Any {
     val constructor =
-        loadUrlParams.declaredConstructors.find { it.parameterTypes.contains(String::class.java) }!!
+      loadUrlParams.declaredConstructors.find { it.parameterTypes.contains(String::class.java) }!!
     val types = constructor.parameterTypes
     if (types contentDeepEquals arrayOf(Int::class.java, String::class.java)) {
       return constructor.newInstance(0, url)
@@ -156,6 +160,47 @@ object UserScriptProxy {
     return null
   }
 
+
+  private fun setUserAgent(userAgentString: String?, it: Any?) {
+    if (defaultUserAgent == null) {
+      val helper =
+        findField(Chrome.load("com.sec.terrace.TerraceHelper")) { name == "sTerraceHelper" }.also {
+          it.isAccessible = true
+        }.get(it)
+      // public getUserAgent()Ljava/lang/String;
+      defaultUserAgent =
+        helper?.invokeMethod { name == "getUserAgent" || (returnType == String::class.java && parameterCount == 0) } as String
+    }
+    val userAgent = userAgentString ?: defaultUserAgent
+    if (Chrome.isSamsung) {
+      val commandLine = Chrome.load("com.sec.terrace.TerraceCommandLine")
+      commandLine.declaredMethods.first {
+        Modifier.isStatic(it.modifiers) && it.parameterTypes contentDeepEquals arrayOf(
+          String::class.java, String::class.java
+        )
+        // public static appendSwitchWithValue(Ljava/lang/String;Ljava/lang/String;)V
+      }.invoke(null, "user-agent", userAgent)
+    }
+  }
+
+  fun userAgentHookDeep(url: String, it: Any?): Boolean {
+    var result = false
+    var origin = parseOrigin(url)
+    if (origin != null && Chrome.getTab() != null) {
+      val useDesktopUserAgent =
+        Chrome.getTab()?.invokeMethod { name == "getUseDesktopUserAgent" } as Boolean
+      if (useDesktopUserAgent) origin += "_Desktop"
+      if (ScriptDbManager.userAgents.contains(origin)) {
+        val userAgent = ScriptDbManager.userAgents[origin]!!
+        setUserAgent(userAgent, it)
+        result = true
+      }
+      if (!result) setUserAgent(null, it)
+    }
+    return result
+  }
+
+
   fun userAgentHook(url: String, urlParams: Any): Boolean {
     val origin = parseOrigin(url)
     if (origin != null) {
@@ -166,7 +211,7 @@ object UserScriptProxy {
           urlParams.invokeMethod(header) { name == "setVerbatimHeaders" }
         } else {
           val mVerbatimHeaders =
-              loadUrlParams.declaredFields.filter { it.type == String::class.java }[1]
+            loadUrlParams.declaredFields.filter { it.type == String::class.java }[1]
           mVerbatimHeaders.set(urlParams, header)
         }
         return true
